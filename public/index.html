@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SITREP — Project Command Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Public+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#EDF0F2; --surface:#FFFFFF; --ink:#17242F; --ink-soft:#52616E;
+    --line:#D7DEE3; --line-strong:#B9C4CC;
+    --accent:#1E5FBB; --accent-ink:#164A93;
+    --st-planned:#5B6B79; --st-active:#1E7F4F; --st-blocked:#B4432E; --st-complete:#7A8792;
+    --amber:#9A6A0B;
+    --radius:6px;
+    --shadow:0 1px 2px rgba(23,36,47,.06), 0 8px 24px rgba(23,36,47,.08);
+    --font-display:'Archivo',sans-serif; --font-body:'Public Sans',sans-serif; --font-mono:'IBM Plex Mono',monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:14.5px;line-height:1.5}
+  button{font-family:inherit;cursor:pointer}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+
+  /* ---------- top bar ---------- */
+  header{background:var(--ink);color:#fff;display:flex;align-items:center;gap:16px;padding:0 20px;height:56px;position:sticky;top:0;z-index:30}
+  .wordmark{font-family:var(--font-display);font-weight:800;font-size:19px;letter-spacing:.14em}
+  .wordmark span{color:#7FA9E8}
+  .dtg-now{font-family:var(--font-mono);font-size:12px;color:#9FB0BE;margin-left:4px}
+  header .spacer{flex:1}
+  .btn{border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);border-radius:var(--radius);padding:7px 14px;font-size:13.5px;font-weight:600;transition:background .12s}
+  .btn:hover{background:#F2F5F7}
+  .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn-primary:hover{background:var(--accent-ink)}
+  .btn-ghost{background:transparent;border-color:#3E4E5C;color:#DCE4EA}
+  .btn-ghost:hover{background:#243442}
+  .btn:disabled{opacity:.55;cursor:wait}
+  .btn-sm{padding:4px 10px;font-size:12.5px}
+  .btn-danger{color:var(--st-blocked);border-color:#E3C4BC}
+  .btn-danger:hover{background:#FBF1EE}
+
+  /* ---------- board ---------- */
+  main{padding:20px;max-width:1600px;margin:0 auto}
+  .board{display:grid;grid-template-columns:repeat(4,minmax(240px,1fr));gap:14px;align-items:start}
+  @media (max-width:960px){.board{display:flex;overflow-x:auto;padding-bottom:12px}.col{min-width:270px;flex:0 0 270px}}
+  .col{background:#E4E9EC;border:1px solid var(--line);border-radius:var(--radius);padding:10px;min-height:200px}
+  .col.drag-over{outline:2px dashed var(--accent);outline-offset:-2px}
+  .col-head{display:flex;align-items:baseline;gap:8px;padding:2px 4px 10px;border-bottom:2px solid var(--col-color,var(--line-strong));margin-bottom:10px}
+  .col-title{font-family:var(--font-display);font-weight:700;font-size:12.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--col-color,var(--ink-soft))}
+  .col-count{font-family:var(--font-mono);font-size:12px;color:var(--ink-soft)}
+  .col[data-status="planned"]{--col-color:var(--st-planned)}
+  .col[data-status="active"]{--col-color:var(--st-active)}
+  .col[data-status="blocked"]{--col-color:var(--st-blocked)}
+  .col[data-status="complete"]{--col-color:var(--st-complete)}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--col-color,var(--line-strong));border-radius:var(--radius);padding:11px 12px;margin-bottom:9px;cursor:pointer;box-shadow:0 1px 2px rgba(23,36,47,.05);transition:box-shadow .12s, transform .12s}
+  .card:hover{box-shadow:var(--shadow);transform:translateY(-1px)}
+  .card.dragging{opacity:.45}
+  .card h3{font-family:var(--font-display);font-weight:700;font-size:14.5px;margin-bottom:3px}
+  .card .desc{color:var(--ink-soft);font-size:13px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .card .meta{display:flex;gap:12px;margin-top:8px;font-family:var(--font-mono);font-size:11px;color:var(--ink-soft)}
+  .stale{color:var(--amber)}
+
+  .empty-board{text-align:center;padding:70px 20px;color:var(--ink-soft)}
+  .empty-board h2{font-family:var(--font-display);font-weight:800;font-size:20px;color:var(--ink);margin-bottom:8px}
+
+  /* ---------- slide-over detail panel ---------- */
+  .scrim{position:fixed;inset:0;background:rgba(23,36,47,.45);z-index:40;opacity:0;pointer-events:none;transition:opacity .18s}
+  .scrim.open{opacity:1;pointer-events:auto}
+  .panel{position:fixed;top:0;right:0;bottom:0;width:min(620px,100%);background:var(--bg);z-index:50;transform:translateX(102%);transition:transform .22s ease;display:flex;flex-direction:column;box-shadow:-12px 0 40px rgba(23,36,47,.25)}
+  .panel.open{transform:none}
+  .panel-head{background:var(--surface);border-bottom:1px solid var(--line);padding:16px 20px;display:flex;align-items:flex-start;gap:12px}
+  .panel-head h2{font-family:var(--font-display);font-weight:800;font-size:19px;flex:1;line-height:1.25}
+  .panel-body{overflow-y:auto;flex:1;padding:18px 20px 40px}
+  .status-select{font-family:var(--font-mono);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;border:1px solid var(--line-strong);border-radius:var(--radius);padding:5px 8px;background:var(--surface)}
+  .proj-meta{font-size:13px;color:var(--ink-soft);margin:2px 20px 0;padding:10px 0 0}
+
+  section.block{margin-bottom:26px}
+  .block-title{font-family:var(--font-display);font-weight:700;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);border-bottom:1px solid var(--line-strong);padding-bottom:6px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}
+  textarea,input[type=text],input[type=date]{width:100%;border:1px solid var(--line-strong);border-radius:var(--radius);padding:9px 11px;font-family:var(--font-body);font-size:14px;background:var(--surface);color:var(--ink);resize:vertical}
+  textarea{min-height:74px}
+  .form-row{display:flex;gap:8px;margin-top:8px;align-items:center}
+  .form-row .grow{flex:1}
+
+  .log-item{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;margin-bottom:8px;position:relative}
+  .log-item .dtg{font-family:var(--font-mono);font-size:11px;color:var(--ink-soft);margin-bottom:4px;display:flex;justify-content:space-between;gap:8px}
+  .log-item p{white-space:pre-wrap;font-size:13.5px}
+  .x{background:none;border:none;color:var(--ink-soft);font-size:15px;line-height:1;padding:2px 4px;border-radius:4px}
+  .x:hover{color:var(--st-blocked);background:#FBF1EE}
+
+  /* ---------- SITREP memo (signature element) ---------- */
+  .memo{background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--radius);margin-bottom:14px;box-shadow:var(--shadow);overflow:hidden}
+  .memo-head{background:var(--ink);color:#fff;font-family:var(--font-mono);font-size:11.5px;letter-spacing:.05em;padding:8px 14px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  .memo-head .k{color:#8FA5B8}
+  .memo-body{padding:14px 16px}
+  .memo-sec{margin-bottom:14px}
+  .memo-sec:last-child{margin-bottom:2px}
+  .memo-sec h4{font-family:var(--font-display);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-ink);margin-bottom:5px;border-bottom:1px dotted var(--line-strong);padding-bottom:3px}
+  .memo-sec.delta h4{color:var(--amber)}
+  .memo-sec.obstacles h4{color:var(--st-blocked)}
+  .memo-sec p{font-size:13.5px}
+  .memo-sec ol,.memo-sec ul{padding-left:20px;font-size:13.5px}
+  .memo-sec li{margin-bottom:4px}
+  details.memo-old{margin-bottom:10px}
+  details.memo-old summary{font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);cursor:pointer;padding:6px 2px}
+
+  /* ---------- modals ---------- */
+  .modal{position:fixed;inset:0;z-index:60;display:none;align-items:flex-start;justify-content:center;padding:6vh 16px;background:rgba(23,36,47,.5)}
+  .modal.open{display:flex}
+  .modal-box{background:var(--bg);border-radius:8px;width:min(720px,100%);max-height:86vh;display:flex;flex-direction:column;box-shadow:var(--shadow)}
+  .modal-box.narrow{width:min(480px,100%)}
+  .modal-head{display:flex;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line);background:var(--surface);border-radius:8px 8px 0 0}
+  .modal-head h2{font-family:var(--font-display);font-weight:800;font-size:16px;flex:1;letter-spacing:.04em}
+  .modal-body{padding:16px 18px;overflow-y:auto}
+  .field{margin-bottom:12px}
+  .field label{display:block;font-size:12.5px;font-weight:600;color:var(--ink-soft);margin-bottom:4px}
+  .modal-foot{padding:12px 18px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px;background:var(--surface);border-radius:0 0 8px 8px}
+
+  .spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px;margin-right:6px}
+  .spinner.dark{border-color:rgba(23,36,47,.25);border-top-color:var(--ink)}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  #toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--ink);color:#fff;padding:10px 18px;border-radius:6px;font-size:13.5px;z-index:100;transition:transform .2s;max-width:90vw}
+  #toast.show{transform:translateX(-50%) translateY(0)}
+  #toast.error{background:var(--st-blocked)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wordmark">SIT<span>REP</span></div>
+  <div class="dtg-now" id="dtgNow"></div>
+  <div class="spacer"></div>
+  <button class="btn btn-ghost" id="btnPrep">Generate meeting prep</button>
+  <button class="btn btn-primary" id="btnNewProject">New project</button>
+</header>
+
+<main>
+  <div class="board" id="board"></div>
+  <div class="empty-board" id="emptyBoard" hidden>
+    <h2>No projects on the board</h2>
+    <p>Create your first project, then log updates and meeting notes as they happen.<br>Generate a SITREP whenever you need to know where things stand.</p>
+  </div>
+</main>
+
+<!-- project detail slide-over -->
+<div class="scrim" id="scrim"></div>
+<aside class="panel" id="panel" aria-label="Project detail">
+  <div class="panel-head">
+    <h2 id="pTitle"></h2>
+    <select class="status-select" id="pStatus" aria-label="Project status">
+      <option value="planned">Planned</option><option value="active">Active</option>
+      <option value="blocked">Blocked</option><option value="complete">Complete</option>
+    </select>
+    <button class="x" id="pClose" aria-label="Close panel" style="font-size:20px">&times;</button>
+  </div>
+  <div class="proj-meta" id="pMeta"></div>
+  <div class="panel-body" id="pBody"></div>
+</aside>
+
+<!-- new project modal -->
+<div class="modal" id="mNew" role="dialog" aria-modal="true" aria-labelledby="mNewTitle">
+  <div class="modal-box narrow">
+    <div class="modal-head"><h2 id="mNewTitle">NEW PROJECT</h2><button class="x" data-close="mNew" aria-label="Close">&times;</button></div>
+    <div class="modal-body">
+      <div class="field"><label for="npName">Name</label><input type="text" id="npName" placeholder="e.g. Landing Zone Migration — Phase 2"></div>
+      <div class="field"><label for="npDesc">Description</label><textarea id="npDesc" placeholder="One or two sentences on scope and goal"></textarea></div>
+      <div class="field"><label for="npStake">Stakeholders</label><input type="text" id="npStake" placeholder="e.g. NetOps team, ISSO, vendor PM"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close="mNew">Cancel</button>
+      <button class="btn btn-primary" id="npSave">Create project</button>
+    </div>
+  </div>
+</div>
+
+<!-- meeting prep modal -->
+<div class="modal" id="mPrep" role="dialog" aria-modal="true" aria-labelledby="mPrepTitle">
+  <div class="modal-box">
+    <div class="modal-head"><h2 id="mPrepTitle">MEETING PREP — ALL ACTIVE PROJECTS</h2><button class="x" data-close="mPrep" aria-label="Close">&times;</button></div>
+    <div class="modal-body" id="prepBody"></div>
+    <div class="modal-foot">
+      <button class="btn" data-close="mPrep">Close</button>
+      <button class="btn btn-primary" id="prepRegen">Regenerate</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" role="status"></div>
+
+<script>
+"use strict";
+const $ = (s, el=document) => el.querySelector(s);
+const STATUSES = [
+  {key:"planned", label:"Planned"}, {key:"active", label:"Active"},
+  {key:"blocked", label:"Blocked"}, {key:"complete", label:"Complete"},
+];
+let currentProjectId = null;
+
+/* ---------- utilities ---------- */
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const MONTHS = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+function dtg(sqlUtc){
+  if(!sqlUtc) return "—";
+  const d = new Date(sqlUtc.replace(" ","T") + (sqlUtc.includes("Z")?"":"Z"));
+  if(isNaN(d)) return sqlUtc;
+  const p = n => String(n).padStart(2,"0");
+  return `${p(d.getDate())} ${MONTHS[d.getMonth()]} ${String(d.getFullYear()).slice(2)} · ${p(d.getHours())}:${p(d.getMinutes())}L`;
+}
+function daysAgo(sqlUtc){
+  if(!sqlUtc) return null;
+  const d = new Date(sqlUtc.replace(" ","T")+"Z");
+  return Math.floor((Date.now() - d.getTime()) / 86400000);
+}
+let toastTimer;
+function toast(msg, isError=false){
+  const t = $("#toast");
+  t.textContent = msg; t.classList.toggle("error", isError); t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(()=>t.classList.remove("show"), 3200);
+}
+async function api(path, opts={}){
+  const res = await fetch(path, {headers:{"Content-Type":"application/json"}, ...opts});
+  const data = await res.json().catch(()=>({error:"Bad response"}));
+  if(!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+function busy(btn, on, labelWhenBusy){
+  if(on){ btn.dataset.label = btn.innerHTML; btn.disabled = true;
+    btn.innerHTML = `<span class="spinner"></span>${labelWhenBusy||"Working…"}`; }
+  else { btn.disabled = false; btn.innerHTML = btn.dataset.label; }
+}
+
+/* ---------- board ---------- */
+async function loadBoard(){
+  const projects = await api("/api/projects").catch(e => (toast(e.message,true), []));
+  const board = $("#board");
+  board.innerHTML = "";
+  $("#emptyBoard").hidden = projects.length > 0;
+  for(const st of STATUSES){
+    const items = projects.filter(p => p.status === st.key);
+    const col = document.createElement("div");
+    col.className = "col"; col.dataset.status = st.key;
+    col.innerHTML = `<div class="col-head"><span class="col-title">${st.label}</span><span class="col-count">${String(items.length).padStart(2,"0")}</span></div>`;
+    for(const p of items) col.appendChild(card(p));
+    wireDropZone(col);
+    board.appendChild(col);
+  }
+}
+function card(p){
+  const el = document.createElement("div");
+  el.className = "card"; el.draggable = true; el.dataset.id = p.id; el.tabIndex = 0;
+  el.setAttribute("role","button");
+  const age = daysAgo(p.last_brief_at);
+  const briefMeta = p.last_brief_at
+    ? `<span class="${age >= 7 ? "stale" : ""}">SITREP ${dtg(p.last_brief_at)}</span>`
+    : `<span class="stale">no SITREP yet</span>`;
+  el.innerHTML = `
+    <h3>${esc(p.name)}</h3>
+    ${p.description ? `<div class="desc">${esc(p.description)}</div>` : ""}
+    <div class="meta"><span>▲ ${p.update_count} upd</span><span>≡ ${p.note_count} notes</span>${briefMeta}</div>`;
+  el.addEventListener("click", ()=>openPanel(p.id));
+  el.addEventListener("keydown", e => { if(e.key==="Enter"||e.key===" "){e.preventDefault();openPanel(p.id);} });
+  el.addEventListener("dragstart", e => { e.dataTransfer.setData("text/plain", p.id); el.classList.add("dragging"); });
+  el.addEventListener("dragend", ()=>el.classList.remove("dragging"));
+  return el;
+}
+function wireDropZone(col){
+  col.addEventListener("dragover", e => { e.preventDefault(); col.classList.add("drag-over"); });
+  col.addEventListener("dragleave", ()=>col.classList.remove("drag-over"));
+  col.addEventListener("drop", async e => {
+    e.preventDefault(); col.classList.remove("drag-over");
+    const id = e.dataTransfer.getData("text/plain");
+    if(!id) return;
+    try{ await api(`/api/projects/${id}`, {method:"PATCH", body:JSON.stringify({status:col.dataset.status})}); await loadBoard(); }
+    catch(err){ toast(err.message, true); }
+  });
+}
+
+/* ---------- detail panel ---------- */
+async function openPanel(id){
+  currentProjectId = id;
+  let p;
+  try{ p = await api(`/api/projects/${id}`); } catch(e){ return toast(e.message, true); }
+  $("#pTitle").textContent = p.name;
+  $("#pStatus").value = p.status;
+  $("#pMeta").innerHTML = [
+    p.description && esc(p.description),
+    p.stakeholders && `<strong>Stakeholders:</strong> ${esc(p.stakeholders)}`
+  ].filter(Boolean).join("<br>") || "";
+
+  const latest = p.briefs[0];
+  const older = p.briefs.slice(1);
+  $("#pBody").innerHTML = `
+    <section class="block">
+      <div class="block-title"><span>SITREP</span>
+        <button class="btn btn-primary btn-sm" id="genBrief">Generate SITREP</button></div>
+      <div id="briefArea">
+        ${latest ? renderMemo(latest, p.name) : `<p style="color:var(--ink-soft);font-size:13px">No SITREP yet. Log a few updates or notes, then generate one.</p>`}
+        ${older.map(b => `<details class="memo-old"><summary>SITREP · ${dtg(b.created_at)}</summary>${renderMemo(b, p.name)}</details>`).join("")}
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="block-title"><span>Log an update</span></div>
+      <textarea id="updText" placeholder="What happened? Decisions, progress, blockers — a sentence or two is enough."></textarea>
+      <div class="form-row"><div class="grow"></div><button class="btn btn-primary btn-sm" id="updSave">Add update</button></div>
+      <div style="margin-top:12px">${p.updates.map(u => logItem(u, "update")).join("") || ""}</div>
+    </section>
+
+    <section class="block">
+      <div class="block-title"><span>Meeting notes</span></div>
+      <textarea id="noteText" placeholder="Paste raw notes from a meeting — they'll be summarized into the next SITREP."></textarea>
+      <div class="form-row">
+        <input type="date" id="noteDate" style="width:160px" value="${new Date().toISOString().slice(0,10)}">
+        <div class="grow"></div>
+        <button class="btn btn-primary btn-sm" id="noteSave">Add notes</button>
+      </div>
+      <div style="margin-top:12px">${p.notes.map(n => logItem(n, "note")).join("") || ""}</div>
+    </section>
+
+    <section class="block">
+      <div class="block-title"><span>Danger zone</span></div>
+      <button class="btn btn-danger btn-sm" id="delProject">Delete project</button>
+    </section>`;
+
+  $("#genBrief").addEventListener("click", onGenerateBrief);
+  $("#updSave").addEventListener("click", onAddUpdate);
+  $("#noteSave").addEventListener("click", onAddNote);
+  $("#delProject").addEventListener("click", onDeleteProject);
+  $("#pBody").querySelectorAll("[data-del]").forEach(b =>
+    b.addEventListener("click", () => onDeleteItem(b.dataset.del, b.dataset.kind)));
+
+  $("#panel").classList.add("open");
+  $("#scrim").classList.add("open");
+}
+function closePanel(){
+  $("#panel").classList.remove("open"); $("#scrim").classList.remove("open");
+  currentProjectId = null; loadBoard();
+}
+function logItem(item, kind){
+  const head = kind === "note" ? `MEETING ${esc(item.meeting_date)} · logged ${dtg(item.created_at)}` : dtg(item.created_at);
+  return `<div class="log-item">
+    <div class="dtg"><span>${head}</span>
+      <button class="x" data-del="${item.id}" data-kind="${kind}" aria-label="Delete">&times;</button></div>
+    <p>${esc(item.content)}</p></div>`;
+}
+function renderMemo(brief, projectName){
+  let c; try{ c = JSON.parse(brief.content_json); } catch { return ""; }
+  const list = (arr, ordered=false) => {
+    if(!arr?.length) return "<p style='color:var(--ink-soft)'>None noted.</p>";
+    const tag = ordered ? "ol" : "ul";
+    return `<${tag}>${arr.map(i => `<li>${esc(i)}</li>`).join("")}</${tag}>`;
+  };
+  return `<div class="memo">
+    <div class="memo-head">
+      <span><span class="k">SITREP //</span> ${esc(projectName).toUpperCase()}</span>
+      <span>${dtg(brief.created_at)}</span>
+    </div>
+    <div class="memo-body">
+      <div class="memo-sec"><h4>Situation</h4><p>${esc(c.summary)}</p></div>
+      <div class="memo-sec delta"><h4>Since last brief</h4><p>${esc(c.delta)}</p></div>
+      <div class="memo-sec obstacles"><h4>Obstacles</h4>${list(c.obstacles)}</div>
+      <div class="memo-sec"><h4>Recommended actions</h4>${list(c.plan, true)}</div>
+      <div class="memo-sec"><h4>Questions for the team</h4>${list(c.questions)}</div>
+      ${c.decisions_needed?.length ? `<div class="memo-sec"><h4>Decisions needed</h4>${list(c.decisions_needed)}</div>` : ""}
+    </div></div>`;
+}
+
+/* ---------- panel actions ---------- */
+async function onGenerateBrief(){
+  const btn = $("#genBrief"); busy(btn, true, "Generating…");
+  try{ await api(`/api/projects/${currentProjectId}/brief`, {method:"POST"}); toast("SITREP generated"); await openPanel(currentProjectId); }
+  catch(e){ toast(e.message, true); busy(btn, false); }
+}
+async function onAddUpdate(){
+  const text = $("#updText").value.trim();
+  if(!text) return toast("Write an update first", true);
+  try{ await api(`/api/projects/${currentProjectId}/updates`, {method:"POST", body:JSON.stringify({content:text})}); await openPanel(currentProjectId); }
+  catch(e){ toast(e.message, true); }
+}
+async function onAddNote(){
+  const text = $("#noteText").value.trim();
+  if(!text) return toast("Paste some notes first", true);
+  try{
+    await api(`/api/projects/${currentProjectId}/notes`, {method:"POST",
+      body:JSON.stringify({content:text, meeting_date: $("#noteDate").value})});
+    await openPanel(currentProjectId);
+  } catch(e){ toast(e.message, true); }
+}
+async function onDeleteItem(id, kind){
+  try{ await api(`/api/${kind === "note" ? "notes" : "updates"}/${id}`, {method:"DELETE"}); await openPanel(currentProjectId); }
+  catch(e){ toast(e.message, true); }
+}
+async function onDeleteProject(){
+  if(!confirm("Delete this project and all its updates, notes, and briefs?")) return;
+  try{ await api(`/api/projects/${currentProjectId}`, {method:"DELETE"}); toast("Project deleted"); closePanel(); }
+  catch(e){ toast(e.message, true); }
+}
+$("#pStatus").addEventListener("change", async e => {
+  try{ await api(`/api/projects/${currentProjectId}`, {method:"PATCH", body:JSON.stringify({status:e.target.value})}); }
+  catch(err){ toast(err.message, true); }
+});
+
+/* ---------- new project ---------- */
+$("#btnNewProject").addEventListener("click", ()=>{ $("#mNew").classList.add("open"); $("#npName").focus(); });
+$("#npSave").addEventListener("click", async ()=>{
+  const name = $("#npName").value.trim();
+  if(!name) return toast("Project name is required", true);
+  const btn = $("#npSave"); busy(btn, true, "Creating…");
+  try{
+    await api("/api/projects", {method:"POST", body:JSON.stringify({
+      name, description: $("#npDesc").value, stakeholders: $("#npStake").value })});
+    $("#mNew").classList.remove("open");
+    $("#npName").value = $("#npDesc").value = $("#npStake").value = "";
+    toast("Project created"); await loadBoard();
+  } catch(e){ toast(e.message, true); }
+  finally{ busy(btn, false); }
+});
+
+/* ---------- meeting prep ---------- */
+function renderPrep(brief){
+  let c; try{ c = JSON.parse(brief.content_json); } catch { return "<p>Could not parse prep.</p>"; }
+  const list = arr => arr?.length ? `<ul>${arr.map(i=>`<li>${esc(i)}</li>`).join("")}</ul>` : "<p style='color:var(--ink-soft)'>None.</p>";
+  return `<div class="memo">
+    <div class="memo-head"><span><span class="k">MEETING PREP //</span> PROGRAM-WIDE</span><span>${dtg(brief.created_at)}</span></div>
+    <div class="memo-body">
+      <div class="memo-sec"><h4>Program overview</h4><p>${esc(c.overview)}</p></div>
+      ${(c.projects||[]).map(p => `
+        <div class="memo-sec">
+          <h4>${esc(p.name)}</h4>
+          <p>${esc(p.status_line)}</p>
+          ${p.top_obstacle && p.top_obstacle.toLowerCase() !== "none" ? `<p><strong style="color:var(--st-blocked)">Top obstacle:</strong> ${esc(p.top_obstacle)}</p>` : ""}
+          ${list(p.questions)}
+        </div>`).join("")}
+      <div class="memo-sec delta"><h4>Cross-cutting themes</h4>${list(c.cross_cutting)}</div>
+      <div class="memo-sec"><h4>Suggested agenda</h4><ol>${(c.suggested_agenda||[]).map(i=>`<li>${esc(i)}</li>`).join("")}</ol></div>
+    </div></div>`;
+}
+async function generatePrep(){
+  const body = $("#prepBody");
+  body.innerHTML = `<p style="padding:10px 0"><span class="spinner dark"></span> Pulling every project's latest state and drafting your prep…</p>`;
+  try{ const brief = await api("/api/meeting-prep", {method:"POST"}); body.innerHTML = renderPrep(brief); }
+  catch(e){ body.innerHTML = `<p style="color:var(--st-blocked)">${esc(e.message)}</p>`; }
+}
+$("#btnPrep").addEventListener("click", async ()=>{
+  $("#mPrep").classList.add("open");
+  const body = $("#prepBody");
+  try{
+    const last = await api("/api/meeting-prep");
+    body.innerHTML = renderPrep(last) + `<p style="font-size:12.5px;color:var(--ink-soft)">Showing the most recent prep. Regenerate to include the latest updates.</p>`;
+  } catch { await generatePrep(); }
+});
+$("#prepRegen").addEventListener("click", generatePrep);
+
+/* ---------- global wiring ---------- */
+$("#scrim").addEventListener("click", closePanel);
+$("#pClose").addEventListener("click", closePanel);
+document.querySelectorAll("[data-close]").forEach(b =>
+  b.addEventListener("click", ()=>$("#"+b.dataset.close).classList.remove("open")));
+document.addEventListener("keydown", e => {
+  if(e.key === "Escape"){
+    document.querySelectorAll(".modal.open").forEach(m=>m.classList.remove("open"));
+    if($("#panel").classList.contains("open")) closePanel();
+  }
+});
+function tickClock(){
+  const d = new Date(); const p = n => String(n).padStart(2,"0");
+  $("#dtgNow").textContent = `${p(d.getDate())} ${MONTHS[d.getMonth()]} ${String(d.getFullYear()).slice(2)} · ${p(d.getHours())}:${p(d.getMinutes())}L`;
+}
+tickClock(); setInterval(tickClock, 30000);
+loadBoard();
+</script>
+</body>
+</html>

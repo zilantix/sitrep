@@ -1,0 +1,37 @@
+name = "sitrep"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+
+# Custom domain — requires zilantix.com to be an active zone on this Cloudflare
+# account first (see DEPLOY guide, Part B). Deploying with this block creates the
+# DNS record and TLS certificate for the subdomain automatically.
+routes = [
+  { pattern = "sitrep.zilantix.com", custom_domain = true }
+]
+
+# Static frontend served from ./public; only /api/* hits the Worker
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "sitrep-db"
+database_id = "REPLACE_WITH_YOUR_DATABASE_ID"   # paste the id from `wrangler d1 create`
+
+# Workers AI binding — no API key needed, runs on Cloudflare's models
+[ai]
+binding = "AI"
+
+[vars]
+# PROVIDER: "workers-ai" (Cloudflare models, no external key)
+#        or "anthropic"  (requires ANTHROPIC_API_KEY secret; higher-quality briefs)
+PROVIDER = "workers-ai"
+WORKERS_AI_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+MODEL = "claude-sonnet-4-6"
+
+# OPTIONAL: auto-generate the consolidated meeting prep every weekday morning.
+# 11:30 UTC = 6:30 AM Central. Uncomment to enable, then redeploy.
+# [triggers]
+# crons = ["30 11 * * 1-5"]
