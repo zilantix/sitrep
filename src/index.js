@@ -296,8 +296,11 @@ async function callWorkersAI(env, system, user, maxTokens) {
     ],
     max_tokens: maxTokens,
   });
-  const text = typeof result === "string" ? result : result.response;
-  if (!text) throw new Error("Workers AI returned an empty response; try regenerating");
+  // Workers AI returns { result: { response: "text" } }
+  const text = result?.result?.response || result?.response || result;
+  if (typeof text !== "string") {
+    throw new Error(`Workers AI returned non-string: ${JSON.stringify(result).slice(0,200)}`);
+  }
   return text;
 }
 
