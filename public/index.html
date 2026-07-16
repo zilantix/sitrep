@@ -134,6 +134,7 @@
   <div class="wordmark">SIT<span>REP</span></div>
   <div class="dtg-now" id="dtgNow"></div>
   <div class="spacer"></div>
+  <button class="btn btn-ghost" id="btnAutoOrganize">Auto-organize notes</button>
   <button class="btn btn-ghost" id="btnPrep">Generate meeting prep</button>
   <button class="btn btn-primary" id="btnNewProject">New project</button>
 </header>
@@ -173,6 +174,31 @@
     <div class="modal-foot">
       <button class="btn" data-close="mNew">Cancel</button>
       <button class="btn btn-primary" id="npSave">Create project</button>
+    </div>
+  </div>
+</div>
+
+<!-- auto-organize modal -->
+<div class="modal" id="mAutoOrg" role="dialog" aria-modal="true" aria-labelledby="mAutoOrgTitle">
+  <div class="modal-box">
+    <div class="modal-head"><h2 id="mAutoOrgTitle">AUTO-ORGANIZE NOTES</h2><button class="x" data-close="mAutoOrg" aria-label="Close">&times;</button></div>
+    <div class="modal-body">
+      <div class="field"><label for="aoInput">Paste raw meeting notes, transcript, or notes:</label>
+        <textarea id="aoInput" placeholder="Paste your raw notes here. The AI will extract projects/systems mentioned and organize them automatically." style="min-height:200px;"></textarea>
+      </div>
+      <div class="field"><label>The AI will:</label>
+        <ul style="margin-left:20px;font-size:13px;color:var(--ink-soft)">
+          <li>Extract distinct projects, systems, and apps mentioned</li>
+          <li>Create new projects for systems mentioned for the first time</li>
+          <li>Attach notes as comments to existing projects</li>
+          <li>Group related points by project</li>
+        </ul>
+      </div>
+      <div id="aoResult"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close="mAutoOrg">Close</button>
+      <button class="btn btn-primary" id="aoRun">Parse & organize</button>
     </div>
   </div>
 </div>
@@ -454,6 +480,46 @@ $("#btnPrep").addEventListener("click", async ()=>{
   } catch { await generatePrep(); }
 });
 $("#prepRegen").addEventListener("click", generatePrep);
+
+/* ---------- auto-organize ---------- */
+$("#btnAutoOrganize").addEventListener("click", ()=>{
+  $("#mAutoOrg").classList.add("open"); $("#aoInput").focus();
+});
+$("#aoRun").addEventListener("click", onAutoOrganize);
+
+async function onAutoOrganize(){
+  const text = $("#aoInput").value.trim();
+  if(!text) return toast("Paste some notes first", true);
+  const btn = $("#aoRun"); busy(btn, true, "Organizing…");
+  const result = $("#aoResult");
+  try{
+    const res = await api("/api/auto-organize", {method:"POST", body:JSON.stringify({raw_input:text})});
+    let html = `<div style="margin-top:14px;padding:12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)">`;
+    if(res.created_projects?.length){
+      html += `<p style="font-weight:600;margin-bottom:8px;color:var(--st-active)">Created projects:</p>`;
+      html += `<ul style="margin-left:20px;margin-bottom:12px">`;
+      res.created_projects.forEach(p => html += `<li>${esc(p.name)} (${p.status})</li>`);
+      html += `</ul>`;
+    }
+    if(res.updated_projects?.length){
+      html += `<p style="font-weight:600;margin-bottom:8px;color:var(--accent)">Updated projects:</p>`;
+      html += `<ul style="margin-left:20px;margin-bottom:12px">`;
+      res.updated_projects.forEach(p => html += `<li>${esc(p.name)}</li>`);
+      html += `</ul>`;
+    }
+    if(res.unclassified_note){
+      html += `<p style="font-weight:600;margin-bottom:4px;color:var(--ink-soft)">Unclassified notes:</p>`;
+      html += `<p style="font-size:13px;color:var(--ink-soft)">${esc(res.unclassified_note)}</p>`;
+    }
+    html += `</div>`;
+    result.innerHTML = html;
+    toast("Organized! Refresh the board."); 
+    await new Promise(r => setTimeout(r, 1500));
+    $("#mAutoOrg").classList.remove("open");
+    await loadBoard();
+  } catch(e){ toast(e.message, true); }
+  finally{ busy(btn, false); }
+}
 
 /* ---------- global wiring ---------- */
 $("#scrim").addEventListener("click", closePanel);

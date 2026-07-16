@@ -18,7 +18,7 @@ run_worker_first = ["/api/*"]
 [[d1_databases]]
 binding = "DB"
 database_name = "sitrep-db"
-database_id = "d2e35fa7-ecd7-4898-998a-613cd7897fee"   # paste the id from `wrangler d1 create`
+database_id = "REPLACE_WITH_YOUR_DATABASE_ID"   # paste the id from `wrangler d1 create`
 
 # Workers AI binding — no API key needed, runs on Cloudflare's models
 [ai]

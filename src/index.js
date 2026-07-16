@@ -151,6 +151,12 @@ async function route(request, env, url) {
     return r ? ok(r) : err("No meeting prep generated yet", 404);
   }
 
+  if (pathname === "/api/auto-organize" && method === "POST") {
+    const body = await request.json();
+    if (!body.raw_input?.trim()) return err("Input text is required");
+    return ok(await autoOrganizeInput(env, body.raw_input.trim()), 201);
+  }
+
   return err("Not found", 404);
 }
 
@@ -296,22 +302,8 @@ async function callWorkersAI(env, system, user, maxTokens) {
     ],
     max_tokens: maxTokens,
   });
-  
-  // Workers AI returns { choices: [{ message: { content: "..." } }] }
-  let text;
-  if (result?.choices?.[0]?.message?.content) {
-    text = result.choices[0].message.content;
-  } else if (result?.result?.response) {
-    text = result.result.response;
-  } else if (result?.response) {
-    text = result.response;
-  } else {
-    text = String(result);
-  }
-  
-  if (!text || typeof text !== "string") {
-    throw new Error(`Workers AI returned unexpected format: ${JSON.stringify(result).slice(0,300)}`);
-  }
+  const text = typeof result === "string" ? result : result.response;
+  if (!text) throw new Error("Workers AI returned an empty response; try regenerating");
   return text;
 }
 
@@ -342,6 +334,76 @@ async function callAnthropic(env, system, user, maxTokens) {
     .filter((b) => b.type === "text")
     .map((b) => b.text)
     .join("\n");
+}
+
+async function autoOrganizeInput(env, rawInput) {
+  // Step 1: ask AI to extract and categorize
+  const extractSystem = `You are parsing raw meeting notes or transcripts to extract distinct projects, systems, or applications mentioned, with relevant notes per each.
+Respond with ONLY a valid JSON object (no markdown, no commentary):
+{
+  "extracted": [
+    {
+      "project_name": "name of the system/app/project mentioned",
+      "relevance": "brief explanation of why it's mentioned",
+      "key_points": ["bullet point 1", "bullet point 2"],
+      "status_hint": "infer status: planned|active|blocked|complete based on context, or null if unclear"
+    }
+  ],
+  "unclassified": "any notes that don't clearly belong to a single project"
+}`;
+
+  const extraction = await callLLM(env, extractSystem, rawInput, 2000);
+
+  // Step 2: get all existing projects
+  const { results: existing } = await env.DB.prepare(
+    `SELECT id, name, status FROM projects ORDER BY name`
+  ).all();
+  const existingByName = new Map(existing.map(p => [p.name.toLowerCase(), p]));
+
+  // Step 3: process each extracted project
+  const created = [];
+  const updated = [];
+
+  for (const item of extraction.extracted || []) {
+    const name = item.project_name?.trim();
+    if (!name) continue;
+
+    const existing_project = existingByName.get(name.toLowerCase());
+
+    if (existing_project) {
+      // Add as a comment/update to existing
+      const summary = [
+        `From auto-parse: ${item.relevance}`,
+        `Key points: ${item.key_points?.join("; ") || "none"}`,
+      ].join("\n");
+      await env.DB.prepare(
+        `INSERT INTO updates (project_id, content) VALUES (?, ?)`
+      ).bind(existing_project.id, summary).run();
+      updated.push({ id: existing_project.id, name });
+    } else {
+      // Create new project (first mention)
+      const status = (item.status_hint && VALID_STATUS.has(item.status_hint)) ? item.status_hint : "active";
+      const desc = [item.relevance, `Key points: ${item.key_points?.join("; ") || "none"}`].join("\n");
+      const proj = await env.DB.prepare(
+        `INSERT INTO projects (name, description, status) VALUES (?, ?, ?) RETURNING id, name, status`
+      ).bind(name, desc, status).first();
+      created.push(proj);
+    }
+  }
+
+  // Step 4: if there's unclassified content, suggest it as a note
+  const result = {
+    parsed_at: new Date().toISOString(),
+    created_projects: created,
+    updated_projects: updated,
+    extraction_summary: extraction,
+  };
+
+  if (extraction.unclassified?.trim()) {
+    result.unclassified_note = extraction.unclassified;
+  }
+
+  return result;
 }
 
 function modelName(env) {
