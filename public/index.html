@@ -92,7 +92,7 @@
   .x:hover{color:var(--st-blocked);background:#FBF1EE}
 
   /* ---------- SITREP memo (signature element) ---------- */
-  .memo{background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--radius);margin-bottom:14px;box-shadow:var(--shadow);overflow:hidden}
+  .memo{background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--radius);margin-bottom:14px;box-shadow:var(--shadow);overflow:hidden;position:relative}
   .memo-head{background:var(--ink);color:#fff;font-family:var(--font-mono);font-size:11.5px;letter-spacing:.05em;padding:8px 14px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
   .memo-head .k{color:#8FA5B8}
   .memo-body{padding:14px 16px}
@@ -139,13 +139,38 @@
   <button class="btn btn-primary" id="btnNewProject">New project</button>
 </header>
 
+  <div class="spacer"></div>
+  <button class="btn btn-ghost" id="btnWeekView">Week view</button>
+  <button class="btn btn-ghost" id="btnAutoOrganize">Auto-organize notes</button>
+  <button class="btn btn-ghost" id="btnPrep">Generate meeting prep</button>
+  <button class="btn btn-primary" id="btnNewProject">New project</button>
+</header>
+
 <main>
-  <div class="board" id="board"></div>
+  <div id="mainContent"></div>
+</main>
+
+<!-- week view tab -->
+<div id="weekViewTab" hidden>
+  <div style="padding:20px;max-width:1400px;margin:0 auto">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+      <h2 style="font-family:var(--font-display);font-weight:800;font-size:20px;flex:1">Weekly Sync Schedule (Mon-Fri)</h2>
+      <button class="btn" id="btnBackToBoard">Back to Kanban</button>
+    </div>
+    <div id="weekGrid"></div>
+  </div>
+</div>
+
+<!-- board tab (Kanban) -->
+<div id="boardTab">
+  <div style="padding:20px;max-width:1600px;margin:0 auto">
+    <div class="board" id="board"></div>
+  </div>
   <div class="empty-board" id="emptyBoard" hidden>
     <h2>No projects on the board</h2>
     <p>Create your first project, then log updates and meeting notes as they happen.<br>Generate a SITREP whenever you need to know where things stand.</p>
   </div>
-</main>
+</div>
 
 <!-- project detail slide-over -->
 <div class="scrim" id="scrim"></div>
@@ -155,6 +180,12 @@
     <select class="status-select" id="pStatus" aria-label="Project status">
       <option value="planned">Planned</option><option value="active">Active</option>
       <option value="blocked">Blocked</option><option value="complete">Complete</option>
+    </select>
+    <select class="status-select" id="pMeetingDay" aria-label="Meeting day" style="margin-left:6px">
+      <option value="">No meeting day</option>
+      <option value="Mon">Monday</option><option value="Tue">Tuesday</option>
+      <option value="Wed">Wednesday</option><option value="Thu">Thursday</option>
+      <option value="Fri">Friday</option>
     </select>
     <button class="x" id="pClose" aria-label="Close panel" style="font-size:20px">&times;</button>
   </div>
@@ -312,6 +343,7 @@ async function openPanel(id){
   try{ p = await api(`/api/projects/${id}`); } catch(e){ return toast(e.message, true); }
   $("#pTitle").textContent = p.name;
   $("#pStatus").value = p.status;
+  $("#pMeetingDay").value = p.meeting_day || "";
   $("#pMeta").innerHTML = [
     p.description && esc(p.description),
     p.stakeholders && `<strong>Stakeholders:</strong> ${esc(p.stakeholders)}`
@@ -370,8 +402,12 @@ function logItem(item, kind){
   const head = kind === "note" ? `MEETING ${esc(item.meeting_date)} · logged ${dtg(item.created_at)}` : dtg(item.created_at);
   return `<div class="log-item">
     <div class="dtg"><span>${head}</span>
-      <button class="x" data-del="${item.id}" data-kind="${kind}" aria-label="Delete">&times;</button></div>
+      <button class="x" data-del="${item.id}" data-kind="${kind}" aria-label="Delete item">&times;</button></div>
     <p>${esc(item.content)}</p></div>`;
+}
+
+function briefDelButton(briefId) {
+  return `<button class="x" data-del-brief="${briefId}" aria-label="Delete SITREP" style="position:absolute;top:8px;right:14px;padding:4px;line-height:1;font-size:16px">&times;</button>`;
 }
 function renderMemo(brief, projectName){
   let c; try{ c = JSON.parse(brief.content_json); } catch { return ""; }
@@ -385,6 +421,7 @@ function renderMemo(brief, projectName){
       <span><span class="k">SITREP //</span> ${esc(projectName).toUpperCase()}</span>
       <span>${dtg(brief.created_at)}</span>
     </div>
+    ${briefDelButton(brief.id)}
     <div class="memo-body">
       <div class="memo-sec"><h4>Situation</h4><p>${esc(c.summary)}</p></div>
       <div class="memo-sec delta"><h4>Since last brief</h4><p>${esc(c.delta)}</p></div>
@@ -428,6 +465,17 @@ async function onDeleteProject(){
 $("#pStatus").addEventListener("change", async e => {
   try{ await api(`/api/projects/${currentProjectId}`, {method:"PATCH", body:JSON.stringify({status:e.target.value})}); }
   catch(err){ toast(err.message, true); }
+});
+$("#pMeetingDay").addEventListener("change", async e => {
+  try{ await api(`/api/projects/${currentProjectId}`, {method:"PATCH", body:JSON.stringify({meeting_day:e.target.value || null})}); }
+  catch(err){ toast(err.message, true); }
+});
+document.addEventListener("click", async e => {
+  if(e.target.dataset.delBrief){
+    if(!confirm("Delete this SITREP?")) return;
+    try{ await api(`/api/briefs/${e.target.dataset.delBrief}`, {method:"DELETE"}); await openPanel(currentProjectId); }
+    catch(err){ toast(err.message, true); }
+  }
 });
 
 /* ---------- new project ---------- */
@@ -481,7 +529,16 @@ $("#btnPrep").addEventListener("click", async ()=>{
 });
 $("#prepRegen").addEventListener("click", generatePrep);
 
-/* ---------- auto-organize ---------- */
+/* ---------- tab switching ---------- */
+$("#btnWeekView").addEventListener("click", () => {
+  $("#boardTab").hidden = false;
+  $("#weekViewTab").hidden = false;
+  loadWeekView();
+});
+$("#btnBackToBoard").addEventListener("click", () => {
+  $("#boardTab").hidden = false;
+  $("#weekViewTab").hidden = true;
+});
 $("#btnAutoOrganize").addEventListener("click", ()=>{
   $("#mAutoOrg").classList.add("open"); $("#aoInput").focus();
 });
@@ -536,6 +593,38 @@ function tickClock(){
   const d = new Date(); const p = n => String(n).padStart(2,"0");
   $("#dtgNow").textContent = `${p(d.getDate())} ${MONTHS[d.getMonth()]} ${String(d.getFullYear()).slice(2)} · ${p(d.getHours())}:${p(d.getMinutes())}L`;
 }
+
+/* ---------- week view ---------- */
+async function loadWeekView(){
+  try{
+    const weekData = await api("/api/week-view");
+    const days = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+    let html = `<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:14px">`;
+    for(const day of days){
+      html += `<div style="background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px;min-height:300px">`;
+      html += `<h3 style="font-family:var(--font-display);font-weight:700;font-size:15px;margin-bottom:12px;border-bottom:2px solid var(--line-strong);padding-bottom:8px">${day}</h3>`;
+      const projects = weekData[day] || [];
+      if(!projects.length){
+        html += `<p style="color:var(--ink-soft);font-size:13px">No projects scheduled</p>`;
+      } else {
+        html += projects.map(p => `
+          <div style="background:var(--bg);border:1px solid var(--line);border-radius:var(--radius);padding:10px;margin-bottom:10px;cursor:pointer" onclick="openPanel(${p.id})">
+            <div style="font-weight:600;font-size:13.5px;margin-bottom:4px">${esc(p.name)}</div>
+            <div style="font-size:12px;color:var(--ink-soft);margin-bottom:4px">Status: <span style="text-transform:uppercase;color:var(--st-${p.status})">${p.status}</span></div>
+            <div style="font-size:11px;color:var(--ink-soft)">
+              ▲ ${p.update_count} upd · ≡ ${p.note_count} notes
+              ${p.last_brief_at ? `<br>SITREP: ${dtg(p.last_brief_at)}` : `<br><span style="color:var(--st-blocked)">no SITREP</span>`}
+            </div>
+          </div>
+        `).join("");
+      }
+      html += `</div>`;
+    }
+    html += `</div>`;
+    $("#weekGrid").innerHTML = html;
+  } catch(e){ toast(e.message, true); }
+}
+
 tickClock(); setInterval(tickClock, 30000);
 loadBoard();
 </script>

@@ -90,6 +90,11 @@ async function route(request, env, url) {
         if (!VALID_STATUS.has(body.status)) return err("Invalid status");
         fields.push("status = ?"); vals.push(body.status);
       }
+      if (body.meeting_day !== undefined) {
+        const day = body.meeting_day?.trim();
+        if (day && !["Mon", "Tue", "Wed", "Thu", "Fri"].includes(day)) return err("Invalid meeting day");
+        fields.push("meeting_day = ?"); vals.push(day || null);
+      }
       if (!fields.length) return err("Nothing to update");
       fields.push("updated_at = datetime('now')");
       const r = await env.DB.prepare(
@@ -137,6 +142,11 @@ async function route(request, env, url) {
     return ok({ deleted: Number(match[1]) });
   }
 
+  if ((match = m(/^\/api\/briefs\/(\d+)$/)) && method === "DELETE") {
+    await env.DB.prepare(`DELETE FROM briefs WHERE id = ?`).bind(Number(match[1])).run();
+    return ok({ deleted: Number(match[1]) });
+  }
+
   // ---- Generation ----
   if ((match = m(/^\/api\/projects\/(\d+)\/brief$/)) && method === "POST") {
     return ok(await generateProjectBrief(env, Number(match[1])), 201);
@@ -151,10 +161,21 @@ async function route(request, env, url) {
     return r ? ok(r) : err("No meeting prep generated yet", 404);
   }
 
-  if (pathname === "/api/auto-organize" && method === "POST") {
-    const body = await request.json();
-    if (!body.raw_input?.trim()) return err("Input text is required");
-    return ok(await autoOrganizeInput(env, body.raw_input.trim()), 201);
+  if (pathname === "/api/week-view" && method === "GET") {
+    const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+    const result = {};
+    for (const day of weekDays) {
+      const { results } = await env.DB.prepare(
+        `SELECT p.*,
+                (SELECT COUNT(*) FROM updates u WHERE u.project_id = p.id) AS update_count,
+                (SELECT COUNT(*) FROM notes n WHERE n.project_id = p.id)   AS note_count,
+                (SELECT MAX(created_at) FROM briefs b WHERE b.project_id = p.id) AS last_brief_at
+         FROM projects p WHERE p.meeting_day = ? AND p.status != 'complete'
+         ORDER BY p.updated_at DESC`
+      ).bind(day).all();
+      result[day] = results;
+    }
+    return ok(result);
   }
 
   return err("Not found", 404);

@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS projects (
   stakeholders TEXT NOT NULL DEFAULT '',
   status       TEXT NOT NULL DEFAULT 'planned'
                CHECK (status IN ('planned','active','blocked','complete')),
+  meeting_day  TEXT DEFAULT NULL
+               CHECK (meeting_day IS NULL OR meeting_day IN ('Mon','Tue','Wed','Thu','Fri')),
   created_at   TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
