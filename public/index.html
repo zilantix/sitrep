@@ -214,6 +214,15 @@
   <div class="modal-box">
     <div class="modal-head"><h2 id="mAutoOrgTitle">AUTO-ORGANIZE NOTES</h2><button class="x" data-close="mAutoOrg" aria-label="Close">&times;</button></div>
     <div class="modal-body">
+      <div class="field"><label for="aoDay">Which sync are these notes from?</label>
+        <select id="aoDay" class="status-select" style="width:auto;padding:7px 10px">
+          <option value="">No specific day</option>
+          <option value="Mon">Monday sync</option><option value="Tue">Tuesday sync</option>
+          <option value="Wed">Wednesday sync</option><option value="Thu">Thursday sync</option>
+          <option value="Fri">Friday sync</option>
+        </select>
+        <p style="font-size:12px;color:var(--ink-soft);margin-top:5px">New projects get this day. If the notes explicitly name a different day for a project, that wins.</p>
+      </div>
       <div class="field"><label for="aoInput">Paste raw meeting notes, transcript, or notes:</label>
         <textarea id="aoInput" placeholder="Paste your raw notes here. The AI will extract projects/systems mentioned and organize them automatically." style="min-height:200px;"></textarea>
       </div>
@@ -531,13 +540,13 @@ $("#prepRegen").addEventListener("click", generatePrep);
 
 /* ---------- tab switching ---------- */
 $("#btnWeekView").addEventListener("click", () => {
-  $("#boardTab").hidden = false;
-  $("#weekViewTab").hidden = false;
+  $("#boardTab").hidden = true;   // Hide Kanban
+  $("#weekViewTab").hidden = false; // Show Week View
   loadWeekView();
 });
 $("#btnBackToBoard").addEventListener("click", () => {
-  $("#boardTab").hidden = false;
-  $("#weekViewTab").hidden = true;
+  $("#boardTab").hidden = false;   // Show Kanban
+  $("#weekViewTab").hidden = true;  // Hide Week View
 });
 $("#btnAutoOrganize").addEventListener("click", ()=>{
   $("#mAutoOrg").classList.add("open"); $("#aoInput").focus();
@@ -550,12 +559,13 @@ async function onAutoOrganize(){
   const btn = $("#aoRun"); busy(btn, true, "Organizing…");
   const result = $("#aoResult");
   try{
-    const res = await api("/api/auto-organize", {method:"POST", body:JSON.stringify({raw_input:text})});
+    const res = await api("/api/auto-organize", {method:"POST",
+      body:JSON.stringify({raw_input:text, meeting_day: $("#aoDay").value || null})});
     let html = `<div style="margin-top:14px;padding:12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)">`;
     if(res.created_projects?.length){
       html += `<p style="font-weight:600;margin-bottom:8px;color:var(--st-active)">Created projects:</p>`;
       html += `<ul style="margin-left:20px;margin-bottom:12px">`;
-      res.created_projects.forEach(p => html += `<li>${esc(p.name)} (${p.status})</li>`);
+      res.created_projects.forEach(p => html += `<li>${esc(p.name)} (${p.status}${p.meeting_day ? ` · ${p.meeting_day}` : ""})</li>`);
       html += `</ul>`;
     }
     if(res.updated_projects?.length){
@@ -564,15 +574,31 @@ async function onAutoOrganize(){
       res.updated_projects.forEach(p => html += `<li>${esc(p.name)}</li>`);
       html += `</ul>`;
     }
+    if(res.day_conflicts?.length){
+      html += `<p style="font-weight:600;margin-bottom:6px;color:var(--amber)">Meeting day changes — your call:</p>`;
+      res.day_conflicts.forEach(c => {
+        html += `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line)">
+          <span style="flex:1;font-size:13px">${esc(c.name)}: <b>${c.current_day || "no day"}</b> → <b>${c.suggested_day}</b></span>
+          <button class="btn btn-sm" data-set-day="${c.id}" data-day="${c.suggested_day}">Move to ${c.suggested_day}</button>
+        </div>`;
+      });
+      html += `<p style="font-size:12px;color:var(--ink-soft);margin-top:6px">Left alone unless you click. Notes were still attached.</p>`;
+    }
     if(res.unclassified_note){
-      html += `<p style="font-weight:600;margin-bottom:4px;color:var(--ink-soft)">Unclassified notes:</p>`;
+      html += `<p style="font-weight:600;margin:12px 0 4px;color:var(--ink-soft)">Unclassified notes:</p>`;
       html += `<p style="font-size:13px;color:var(--ink-soft)">${esc(res.unclassified_note)}</p>`;
     }
     html += `</div>`;
     result.innerHTML = html;
-    toast("Organized! Refresh the board."); 
-    await new Promise(r => setTimeout(r, 1500));
-    $("#mAutoOrg").classList.remove("open");
+    result.querySelectorAll("[data-set-day]").forEach(b => b.addEventListener("click", async () => {
+      try{
+        await api(`/api/projects/${b.dataset.setDay}`, {method:"PATCH",
+          body:JSON.stringify({meeting_day: b.dataset.day})});
+        b.outerHTML = `<span style="font-size:12px;color:var(--st-active)">Moved to ${b.dataset.day}</span>`;
+      } catch(e){ toast(e.message, true); }
+    }));
+    $("#aoInput").value = "";
+    toast("Organized");
     await loadBoard();
   } catch(e){ toast(e.message, true); }
   finally{ busy(btn, false); }

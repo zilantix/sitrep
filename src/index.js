@@ -161,6 +161,14 @@ async function route(request, env, url) {
     return r ? ok(r) : err("No meeting prep generated yet", 404);
   }
 
+  if (pathname === "/api/auto-organize" && method === "POST") {
+    const body = await request.json();
+    if (!body.raw_input?.trim()) return err("Input text is required");
+    const day = body.meeting_day?.trim() || null;
+    if (day && !VALID_DAYS.has(day)) return err("Invalid meeting day");
+    return ok(await autoOrganizeInput(env, body.raw_input.trim(), day), 201);
+  }
+
   if (pathname === "/api/week-view" && method === "GET") {
     const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri"];
     const result = {};
@@ -323,8 +331,22 @@ async function callWorkersAI(env, system, user, maxTokens) {
     ],
     max_tokens: maxTokens,
   });
-  const text = typeof result === "string" ? result : result.response;
-  if (!text) throw new Error("Workers AI returned an empty response; try regenerating");
+
+  // Response shape varies by model/version. Newer chat models return an
+  // OpenAI-style { choices: [{ message: { content } }] }; older ones return
+  // { response } or { result: { response } }. Handle all of them.
+  const text =
+    (typeof result === "string" && result) ||
+    result?.choices?.[0]?.message?.content ||
+    result?.result?.response ||
+    result?.response ||
+    null;
+
+  if (typeof text !== "string" || !text.trim()) {
+    throw new Error(
+      `Workers AI returned an unexpected response shape: ${JSON.stringify(result).slice(0, 300)}`
+    );
+  }
   return text;
 }
 
@@ -357,9 +379,14 @@ async function callAnthropic(env, system, user, maxTokens) {
     .join("\n");
 }
 
-async function autoOrganizeInput(env, rawInput) {
+const VALID_DAYS = new Set(["Mon", "Tue", "Wed", "Thu", "Fri"]);
+
+async function autoOrganizeInput(env, rawInput, defaultDay) {
   // Step 1: ask AI to extract and categorize
   const extractSystem = `You are parsing raw meeting notes or transcripts to extract distinct projects, systems, or applications mentioned, with relevant notes per each.
+${defaultDay
+  ? `These notes come from a recurring sync that meets on ${defaultDay}. Assume every project belongs to that sync UNLESS the notes explicitly state a project is discussed on a different weekday — only then set day_hint to that day.`
+  : `If the notes explicitly name a weekday for a project's recurring meeting, set day_hint; otherwise leave it null.`}
 Respond with ONLY a valid JSON object (no markdown, no commentary):
 {
   "extracted": [
@@ -367,7 +394,8 @@ Respond with ONLY a valid JSON object (no markdown, no commentary):
       "project_name": "name of the system/app/project mentioned",
       "relevance": "brief explanation of why it's mentioned",
       "key_points": ["bullet point 1", "bullet point 2"],
-      "status_hint": "infer status: planned|active|blocked|complete based on context, or null if unclear"
+      "status_hint": "infer status: planned|active|blocked|complete based on context, or null if unclear",
+      "day_hint": "Mon|Tue|Wed|Thu|Fri only if the notes explicitly state this project's meeting day, else null"
     }
   ],
   "unclassified": "any notes that don't clearly belong to a single project"
@@ -377,22 +405,27 @@ Respond with ONLY a valid JSON object (no markdown, no commentary):
 
   // Step 2: get all existing projects
   const { results: existing } = await env.DB.prepare(
-    `SELECT id, name, status FROM projects ORDER BY name`
+    `SELECT id, name, status, meeting_day FROM projects ORDER BY name`
   ).all();
   const existingByName = new Map(existing.map(p => [p.name.toLowerCase(), p]));
 
   // Step 3: process each extracted project
   const created = [];
   const updated = [];
+  const day_conflicts = [];
 
   for (const item of extraction.extracted || []) {
     const name = item.project_name?.trim();
     if (!name) continue;
 
+    // AI override wins only if it named a valid day; otherwise the dropdown value.
+    const hinted = VALID_DAYS.has(item.day_hint) ? item.day_hint : null;
+    const day = hinted || (VALID_DAYS.has(defaultDay) ? defaultDay : null);
+
     const existing_project = existingByName.get(name.toLowerCase());
 
     if (existing_project) {
-      // Add as a comment/update to existing
+      // Attach notes as an update. Never silently change an existing project's day.
       const summary = [
         `From auto-parse: ${item.relevance}`,
         `Key points: ${item.key_points?.join("; ") || "none"}`,
@@ -400,23 +433,34 @@ Respond with ONLY a valid JSON object (no markdown, no commentary):
       await env.DB.prepare(
         `INSERT INTO updates (project_id, content) VALUES (?, ?)`
       ).bind(existing_project.id, summary).run();
+      await touch(env, existing_project.id);
       updated.push({ id: existing_project.id, name });
+
+      if (day && day !== existing_project.meeting_day) {
+        day_conflicts.push({
+          id: existing_project.id,
+          name,
+          current_day: existing_project.meeting_day,
+          suggested_day: day,
+        });
+      }
     } else {
-      // Create new project (first mention)
+      // Create new project (first mention) — day is set here, no approval needed.
       const status = (item.status_hint && VALID_STATUS.has(item.status_hint)) ? item.status_hint : "active";
       const desc = [item.relevance, `Key points: ${item.key_points?.join("; ") || "none"}`].join("\n");
       const proj = await env.DB.prepare(
-        `INSERT INTO projects (name, description, status) VALUES (?, ?, ?) RETURNING id, name, status`
-      ).bind(name, desc, status).first();
+        `INSERT INTO projects (name, description, status, meeting_day)
+         VALUES (?, ?, ?, ?) RETURNING id, name, status, meeting_day`
+      ).bind(name, desc, status, day).first();
       created.push(proj);
     }
   }
 
-  // Step 4: if there's unclassified content, suggest it as a note
   const result = {
     parsed_at: new Date().toISOString(),
     created_projects: created,
     updated_projects: updated,
+    day_conflicts,
     extraction_summary: extraction,
   };
 
