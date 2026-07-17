@@ -221,17 +221,24 @@ async function generateProjectBrief(env, projectId) {
     ).bind(projectId).all(),
   ]);
 
-  const system = `You are an operations analyst preparing a SITREP (situation report) for a senior cloud architect who oversees multiple AWS projects. Be concrete, terse, and decision-oriented. Never invent facts not present in the source material; if information is missing, surface it as a question instead.
+  const system = `You are an operations analyst preparing a SITREP (situation report) for a senior cloud architect who oversees multiple AWS projects. Be concrete, specific, and decision-oriented. Prefer detail over brevity: name systems, environments, tickets, and technical specifics that appear in the source material rather than generalizing them away.
+
+CRITICAL — never invent facts:
+- Only name a person if that person's name appears in the source material. Never guess who owns something.
+- Only list a deadline if a date, day, or explicit timeframe appears in the source material. Never estimate or infer one.
+- If the source doesn't say, leave the array empty and raise it under "questions" instead.
+
 Respond with ONLY a valid JSON object (no markdown fences, no commentary) with exactly these keys:
 {
-  "summary": "3-5 sentence plain-language state of the project",
+  "summary": "5-8 sentences: the state of the project, what's moving, what's stuck, and why it matters. Reference specific systems and details from the source.",
   "delta": "what changed since the previous brief; 'First brief for this project.' if none",
-  "obstacles": ["current blockers and risks, most severe first"],
+  "obstacles": ["current blockers and risks, most severe first; say what is blocked and on what"],
+  "owners": [{"name": "person as named in the source", "responsibility": "what they own or committed to", "source": "brief quote or paraphrase showing where this came from"}],
+  "deadlines": [{"what": "the deliverable or milestone", "due": "the date/timeframe exactly as stated in the source", "owner": "person if named, else null"}],
   "plan": ["recommended next actions in priority order, each starting with a verb"],
-  "questions": ["sharp questions to ask the team at the next meeting"],
+  "questions": ["sharp questions to ask the team; include anything where ownership or a date is unclear"],
   "decisions_needed": ["decisions awaiting the architect or leadership; empty array if none"]
 }`;
-
   const userMsg = [
     `PROJECT: ${project.name} (status: ${project.status})`,
     project.description && `DESCRIPTION: ${project.description}`,
@@ -245,7 +252,7 @@ Respond with ONLY a valid JSON object (no markdown fences, no commentary) with e
     fmtItems(notes.results, since, (n) => `[meeting ${n.meeting_date}] ${n.content}`, (n) => n.created_at),
   ].filter(Boolean).join("\n\n");
 
-  const content = await callLLM(env, system, userMsg, 3000);
+  const content = await callLLM(env, system, userMsg, 4000);
   const brief = await env.DB.prepare(
     `INSERT INTO briefs (project_id, kind, content_json, model)
      VALUES (?, 'sitrep', ?, ?) RETURNING *`

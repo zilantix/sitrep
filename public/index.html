@@ -435,6 +435,12 @@ function renderMemo(brief, projectName){
       <div class="memo-sec"><h4>Situation</h4><p>${esc(c.summary)}</p></div>
       <div class="memo-sec delta"><h4>Since last brief</h4><p>${esc(c.delta)}</p></div>
       <div class="memo-sec obstacles"><h4>Obstacles</h4>${list(c.obstacles)}</div>
+      ${c.owners?.length ? `<div class="memo-sec"><h4>Who owns what</h4><ul>${c.owners.map(o =>
+        `<li><b>${esc(o.name)}</b> — ${esc(o.responsibility)}${o.source ? ` <span style="color:var(--ink-soft);font-size:12px">(${esc(o.source)})</span>` : ""}</li>`
+      ).join("")}</ul></div>` : ""}
+      ${c.deadlines?.length ? `<div class="memo-sec delta"><h4>Deadlines</h4><ul>${c.deadlines.map(d =>
+        `<li><b>${esc(d.due)}</b> — ${esc(d.what)}${d.owner ? ` · ${esc(d.owner)}` : ""}</li>`
+      ).join("")}</ul></div>` : ""}
       <div class="memo-sec"><h4>Recommended actions</h4>${list(c.plan, true)}</div>
       <div class="memo-sec"><h4>Questions for the team</h4>${list(c.questions)}</div>
       ${c.decisions_needed?.length ? `<div class="memo-sec"><h4>Decisions needed</h4>${list(c.decisions_needed)}</div>` : ""}
