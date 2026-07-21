@@ -237,7 +237,8 @@ Respond with ONLY a valid JSON object (no markdown fences, no commentary) with e
   "deadlines": [{"what": "the deliverable or milestone", "due": "the date/timeframe exactly as stated in the source", "owner": "person if named, else null"}],
   "plan": ["recommended next actions in priority order, each starting with a verb"],
   "questions": ["sharp questions to ask the team; include anything where ownership or a date is unclear"],
-  "decisions_needed": ["decisions awaiting the architect or leadership; empty array if none"]
+  "decisions_needed": ["decisions awaiting the architect or leadership; empty array if none"],
+  "closeout": "1-3 warm, appreciative sentences to say to the team at the end of the meeting. Ground the appreciation in specific work that appears in the source — name the actual progress or effort. If the project is stalled, acknowledge the effort honestly and encouragingly rather than forcing praise. Never invent accomplishments that aren't in the source."
 }`;
   const userMsg = [
     `PROJECT: ${project.name} (status: ${project.status})`,
